@@ -4,6 +4,12 @@
 **Offline Posts Manager** is a Flutter mobile application developed as part of **Flutter Lab 5**.  
 The app allows staff of a media company to manage posts without requiring an internet connection by storing all data locally using SQLite.
 
+## Brief Demo
+<p align="center">
+  <img src="lib/src/Screenshot_20260325-213333.png" width="30%" />
+  <img src="lib/src/Screenshot_20260325-213436.png" width="30%" />
+  <img src="lib/src/Screenshot_20260325-220655.png" width="30%" />
+</p>
 ---
 
 ## Objective
