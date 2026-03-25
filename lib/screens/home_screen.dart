@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import '../database/database_helper.dart';
 import '../models/post.dart';
-import '../services/database_service.dart';
+import '../utils/app_theme.dart';
+import '../widgets/post_card.dart';
+import '../widgets/delete_confirmation_dialog.dart';
 import 'add_edit_post_screen.dart';
 import 'post_details_screen.dart';
 
@@ -12,351 +14,285 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  final DatabaseService _dbService = DatabaseService();
-  late Future<List<Post>> _postsFuture;
-  late AnimationController _fabAnimationController;
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  List<Post> _posts = [];
+  bool _isLoading = true;
+  late AnimationController _fabAnimController;
+  late Animation<double> _fabScaleAnim;
 
   @override
   void initState() {
     super.initState();
-    _postsFuture = _dbService.getAllPosts();
-    _fabAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+    _fabAnimController = AnimationController(
       vsync: this,
+      duration: const Duration(milliseconds: 300),
     );
+    _fabScaleAnim = CurvedAnimation(
+      parent: _fabAnimController,
+      curve: Curves.elasticOut,
+    );
+    _loadPosts();
   }
 
   @override
   void dispose() {
-    _fabAnimationController.dispose();
+    _fabAnimController.dispose();
     super.dispose();
   }
 
-  void _refreshPosts() {
-    setState(() {
-      _postsFuture = _dbService.getAllPosts();
-    });
-  }
-
-  void _navigateToAddPost() async {
-    _fabAnimationController.forward();
-    final result = await Navigator.push(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return AddEditPostScreen(post: null);
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(0.0, 1.0);
-          const end = Offset.zero;
-          const curve = Curves.easeInOut;
-          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-          return SlideTransition(position: animation.drive(tween), child: child);
-        },
-      ),
-    );
-    _fabAnimationController.reverse();
-    if (result == true) {
-      _refreshPosts();
+  Future<void> _loadPosts() async {
+    setState(() => _isLoading = true);
+    try {
+      final posts = await _dbHelper.getAllPosts();
+      if (mounted) {
+        setState(() {
+          _posts = posts;
+          _isLoading = false;
+        });
+        _fabAnimController.forward();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load posts: $e'),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
     }
   }
 
-  void _navigateToDetails(Post post) {
-    Navigator.push(
+  Future<void> _deletePost(Post post) async {
+    await _dbHelper.deletePost(post.id!);
+    if (mounted) {
+      setState(() => _posts.removeWhere((p) => p.id == post.id));
+      _showSnackBar('Post deleted successfully', isError: true);
+    }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.delete_rounded : Icons.check_circle_rounded,
+              color: AppTheme.surfaceWhite,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Text(message),
+          ],
+        ),
+        backgroundColor:
+            isError ? AppTheme.primaryRed : const Color(0xFF2E7D32),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _navigateToAddPost() async {
+    final result = await Navigator.push<bool>(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return PostDetailsScreen(post: post);
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return ScaleTransition(
-            scale: animation,
-            alignment: Alignment.center,
+        pageBuilder: (_, animation, __) => const AddEditPostScreen(),
+        transitionsBuilder: (_, animation, __, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
             child: child,
           );
         },
+        transitionDuration: const Duration(milliseconds: 350),
       ),
-    ).then((_) => _refreshPosts());
+    );
+    if (result == true) {
+      _loadPosts();
+      _showSnackBar('Post created successfully');
+    }
   }
 
-  void _deletePost(int postId) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return DeleteConfirmationDialog(
-          onConfirm: () async {
-            Navigator.pop(context);
-            await _dbService.deletePost(postId);
-            _refreshPosts();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Post deleted successfully'),
-                  duration: Duration(seconds: 2),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          },
-        );
-      },
+  Future<void> _navigateToEditPost(Post post) async {
+    final result = await Navigator.push<bool>(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, animation, __) => AddEditPostScreen(post: post),
+        transitionsBuilder: (_, animation, __, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(1, 0),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 350),
+      ),
+    );
+    if (result == true) {
+      _loadPosts();
+      _showSnackBar('Post updated successfully');
+    }
+  }
+
+  Future<void> _navigateToDetails(Post post) async {
+    await Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, animation, __) => PostDetailsScreen(post: post),
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.05, 0),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 280),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.backgroundWhite,
       appBar: AppBar(
-        title: const Text('Posts Manager'),
-        elevation: 0,
-      ),
-      body: FutureBuilder<List<Post>>(
-        future: _postsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('Error: ${snapshot.error}'),
-            );
-          }
-
-          final posts = snapshot.data ?? [];
-
-          if (posts.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.folder_open,
-                    size: 80,
-                    color: Colors.grey.shade300,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No posts yet',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tap the + button to create your first post',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade500,
-                        ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.only(top: 8, bottom: 80),
-            itemCount: posts.length,
-            itemBuilder: (context, index) {
-              final post = posts[index];
-              return AnimatedOpacity(
-                opacity: 1.0,
+        title: const Text('Offline Posts Manager'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                child: _PostCard(
-                  post: post,
-                  onTap: () => _navigateToDetails(post),
-                  onEdit: () async {
-                    final result = await Navigator.push(
-                      context,
-                      PageRouteBuilder(
-                        pageBuilder: (context, animation, secondaryAnimation) {
-                          return AddEditPostScreen(post: post);
-                        },
-                        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                          const begin = Offset(1.0, 0.0);
-                          const end = Offset.zero;
-                          const curve = Curves.easeInOut;
-                          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-                          return SlideTransition(position: animation.drive(tween), child: child);
-                        },
-                      ),
-                    );
-                    if (result == true) {
-                      _refreshPosts();
-                    }
-                  },
-                  onDelete: () => _deletePost(post.id!),
-                ),
-              );
-            },
-          );
-        },
-      ),
-      floatingActionButton: ScaleTransition(
-        scale: Tween<double>(begin: 0.0, end: 1.0).animate(
-          CurvedAnimation(parent: _fabAnimationController, curve: Curves.elasticOut),
-        ),
-        child: FloatingActionButton(
-          onPressed: _navigateToAddPost,
-          child: const Icon(Icons.add),
-        ),
-      ),
-    );
-  }
-}
-
-class _PostCard extends StatefulWidget {
-  final Post post;
-  final VoidCallback onTap;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  const _PostCard({
-    required this.post,
-    required this.onTap,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  @override
-  State<_PostCard> createState() => _PostCardState();
-}
-
-class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => _controller.forward(),
-      onExit: (_) => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Card(
-          child: InkWell(
-            onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: Colors.red.shade700,
-                    width: 4,
-                  ),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title
-                  Text(
-                    widget.post.title,
-                    style: Theme.of(context).textTheme.titleLarge,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Description preview
-                  Text(
-                    widget.post.description,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Timestamp and action buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Timestamp
-                      if (widget.post.updatedAt != null)
-                        Text(
-                          DateFormat('MMM d, yyyy').format(widget.post.updatedAt!),
-                          style: Theme.of(context).textTheme.labelSmall,
+                child: _posts.isEmpty
+                    ? const SizedBox.shrink()
+                    : Container(
+                        key: ValueKey(_posts.length),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accentYellow,
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                      // Action buttons
-                      Row(
-                        children: [
-                          // Edit button
-                          IconButton(
-                            icon: Icon(Icons.edit, color: Colors.amber.shade600),
-                            onPressed: widget.onEdit,
-                            tooltip: 'Edit',
-                            splashRadius: 20,
+                        child: Text(
+                          '${_posts.length} Post${_posts.length != 1 ? 's' : ''}',
+                          style: const TextStyle(
+                            color: AppTheme.textBlack,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
-                          // Delete button
-                          IconButton(
-                            icon: Icon(Icons.delete, color: Colors.red.shade600),
-                            onPressed: widget.onDelete,
-                            tooltip: 'Delete',
-                            splashRadius: 20,
-                          ),
-                        ],
+                        ),
                       ),
-                    ],
-                  ),
-                ],
               ),
             ),
           ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: AppTheme.primaryRed),
+            )
+          : _posts.isEmpty
+              ? _buildEmptyState()
+              : _buildPostsList(),
+      floatingActionButton: ScaleTransition(
+        scale: _fabScaleAnim,
+        child: FloatingActionButton(
+          onPressed: _navigateToAddPost,
+          tooltip: 'Add New Post',
+          child: const Icon(Icons.add_rounded, size: 28),
         ),
       ),
     );
   }
-}
 
-class DeleteConfirmationDialog extends StatelessWidget {
-  final VoidCallback onConfirm;
-
-  const DeleteConfirmationDialog({
-    required this.onConfirm,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Delete Post'),
-      content: const Text('Are you sure you want to delete this post? This action cannot be undone.'),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      actions: [
-        OutlinedButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red.shade700,
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryRed.withAlpha(15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.article_outlined,
+              size: 48,
+              color: AppTheme.primaryRed,
+            ),
           ),
-          onPressed: onConfirm,
-          child: const Text('Delete'),
-        ),
-      ],
+          const SizedBox(height: 24),
+          const Text(
+            'No Posts Yet',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textBlack,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Tap the + button to create\nyour first post',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              color: AppTheme.subtleGrey,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton.icon(
+            onPressed: _navigateToAddPost,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Create Post'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostsList() {
+    return RefreshIndicator(
+      color: AppTheme.primaryRed,
+      onRefresh: _loadPosts,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        itemCount: _posts.length,
+        itemBuilder: (context, index) {
+          final post = _posts[index];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: PostCard(
+              post: post,
+              index: index,
+              onTap: () => _navigateToDetails(post),
+              onEdit: () => _navigateToEditPost(post),
+              onDelete: () => showDeleteConfirmation(
+                context,
+                postTitle: post.title,
+                onConfirm: () => _deletePost(post),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
