@@ -52,7 +52,7 @@ SQLite is used because it:
 - **Table:** `posts`  
 
 
-## 🔄 CRUD Operations
+## CRUD Operations
 
 - **Create:** Add new posts to the database  
 - **Read:** Retrieve and display all posts  
@@ -65,9 +65,9 @@ SQLite is used because it:
 
 The app handles database-related errors as follows:
 
-- ❗ Database not initialized → Ensures initialization before use  
-- ❗ Insert/Update/Delete errors → Handled using `try-catch`  
-- ❗ Invalid/Corrupted data → Input validation and safe parsing  
+-  Database not initialized → Ensures initialization before use  
+-  Insert/Update/Delete errors → Handled using `try-catch`  
+-  Invalid/Corrupted data → Input validation and safe parsing  
 
 ---
 
